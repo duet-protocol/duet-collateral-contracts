@@ -17,18 +17,20 @@ import "../interfaces/IDYToken.sol";
 import "../interfaces/IPair.sol";
 import "../interfaces/IUSDOracle.sol";
 
+import '../libs/HomoraMath.sol';
+
 import "./DepositVaultBase.sol";
 
 // LpFarmingVault only for deposit
 contract LpFarmingVault is DepositVaultBase {
-
+  using HomoraMath for uint;
   using SafeERC20Upgradeable for IERC20Upgradeable;
 
   address public pair;
   address public token0;
-  uint internal decimal0Scale;
+  uint internal decimal0Scale; // no used again
   address public token1;
-  uint internal decimal1Scale;
+  uint internal decimal1Scale; // no used again
 
   function initialize(
     address _controller,
@@ -38,12 +40,7 @@ contract LpFarmingVault is DepositVaultBase {
     pair = IDYToken(_underlying).underlying(); 
     
     token0 = IPair(pair).token0();
-    uint decimal0 = IERC20Metadata(token0).decimals();
-    decimal0Scale = 10 ** decimal0;
-
     token1 = IPair(pair).token1();
-    uint decimal1 = IERC20Metadata(token1).decimals();
-    decimal1Scale = 10 ** decimal1;
   }
 
 
@@ -93,30 +90,31 @@ contract LpFarmingVault is DepositVaultBase {
     _liquidate(liquidator, borrower, data);
   }
 
+
   function underlyingAmountValue(uint _amount, bool dp) public view returns(uint value) {
     if(_amount == 0) {
       return 0;
     }
     uint lpSupply = IERC20(pair).totalSupply();
 
-    (uint112 reserve0, uint112 reserve1, ) = IPair(pair).getReserves();
-
+    (uint reserve0, uint reserve1, ) = IPair(pair).getReserves();
+    uint sqrtK = HomoraMath.sqrt(reserve0 * reserve1).fdiv(lpSupply);  // in 2**112
+    
     // get lp amount
     uint amount = IDYToken(underlying).underlyingAmount(_amount);
 
-    uint amount0 = reserve0 * amount / lpSupply;
-    uint amount1 = reserve1 * amount / lpSupply;
-
     (address oracle0, uint dr0, ,
-     address oracle1, uint dr1,) = IController(controller).getValueConfs(token0, token1);
+    address oracle1, uint dr1,) = IController(controller).getValueConfs(token0, token1);
 
     uint price0 = IUSDOracle(oracle0).getPrice(token0);
     uint price1 = IUSDOracle(oracle1).getPrice(token1);
 
-    if (dp) { 
-      value = (amount0 * price0 * dr0 / PercentBase / decimal0Scale) + (amount1 * price1 * dr1 / PercentBase / decimal1Scale);
+    uint lp_price =  (sqrtK * 2 * (HomoraMath.sqrt(price0)) / (2**56)) * HomoraMath.sqrt(price1) / 2**56;
+
+    if (dp) {
+      value = lp_price * amount * (dr0 + dr1) / 2 / PercentBase / (10 ** 18);
     } else {
-      value = (amount0 * price0 / decimal0Scale) + (amount1 * price1 / decimal1Scale);
+      value = lp_price * amount / (10 ** 18);
     }
   }
 
