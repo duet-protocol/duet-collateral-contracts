@@ -16,6 +16,8 @@ import "../interfaces/IController.sol";
 import "../interfaces/IDYToken.sol";
 import "../interfaces/IPair.sol";
 import "../interfaces/IUSDOracle.sol";
+import "../interfaces/IZap.sol";
+import "../interfaces/IWithdrawCallee.sol";
 
 import '../libs/HomoraMath.sol';
 
@@ -86,10 +88,17 @@ contract LpFarmingVault is DepositVaultBase {
     _withdraw(to, amount, unpack);
   }
 
+  function withdrawCall(address to, uint256 amount, bool unpack, bytes calldata data) external {
+    uint actualAmount = _withdraw(to, amount, unpack);
+    if (data.length > 0) {
+      address asset = unpack ? pair : underlying;
+      IWithdrawCallee(to).execCallback(msg.sender, asset, actualAmount, data);
+    }
+  }
+
   function liquidate(address liquidator, address borrower, bytes calldata data) external override {
     _liquidate(liquidator, borrower, data);
   }
-
 
   function underlyingAmountValue(uint _amount, bool dp) public view returns(uint value) {
     if(_amount == 0) {

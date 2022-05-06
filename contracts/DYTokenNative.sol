@@ -80,7 +80,7 @@ constructor(address _underlying,
     earn();
   }
 
-  function withdraw(address _to, uint _shares, bool needWETH) public override {
+  function withdraw(address _to, uint _shares, bool needETH) public override {
     require(_shares > 0, "shares need > 0");
     require(totalSupply() > 0, "no deposit");
 
@@ -104,7 +104,7 @@ constructor(address _underlying,
       }
     }
     
-    if (needWETH) {
+    if (needETH) {
       IWETH(underlying).withdraw(r);
       TransferHelper.safeTransferETH(_to, r);
     } else {

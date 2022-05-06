@@ -18,4 +18,7 @@ interface IController {
   function exitVault(address _user, bool isDeposit) external;
 
   function userValues(address _user, bool _dp) external view returns(uint totalDepositValue, uint totalBorrowValue);
+  function userTotalValues(address _user, bool _dp) external view returns(uint totalDepositValue, uint totalBorrowValue);
+
+  function liquidate(address _borrower, bytes calldata data) external;
 }

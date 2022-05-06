@@ -115,7 +115,7 @@ abstract contract DYTokenBase is IDYToken, ERC20, ERC20Permit, Ownable {
   }
 
   // withdraw underlying asset, brun dyTokens
-  function withdraw(address _to, uint _shares, bool needWETH) public virtual;
+  function withdraw(address _to, uint _shares, bool needETH) public virtual;
 
   function withdrawAll() external {
       withdraw(msg.sender, balanceOf(msg.sender), true);

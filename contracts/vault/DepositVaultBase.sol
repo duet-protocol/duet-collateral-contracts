@@ -98,16 +98,24 @@ abstract contract DepositVaultBase is Constants, IVault, IDepositVault, OwnableU
     emit FarmChanged(_farm);
   }
 
-  function _deposit(address supplyer, uint256 amount) internal nonReentrant {
+  function _deposit(address supplyer, uint256 amount) internal virtual nonReentrant {
     require(amount > 0, "DEPOSITE_IS_ZERO");
     IController(controller).beforeDeposit(supplyer, address(this), amount);
 
-    deposits[supplyer] += amount;
-    emit Deposit(supplyer, amount);
+    (address receiver, uint dFee) = feeConf.getConfig("deposit_fee");
+    uint actualAmount = amount;
+    if (dFee > 0) {
+      uint fee = amount * dFee / PercentBase;
+      actualAmount = amount - fee;
+      underlyingTransferOut(receiver, fee, false);
+    }
+
+    deposits[supplyer] += actualAmount;
+    emit Deposit(supplyer, actualAmount);
     _updateJoinStatus(supplyer);
 
     if (address(farm) != address(0)) {
-      farm.syncDeposit(supplyer, amount, underlying);
+      farm.syncDeposit(supplyer, actualAmount, underlying);
     }
   }
 
@@ -121,16 +129,9 @@ abstract contract DepositVaultBase is Constants, IVault, IDepositVault, OwnableU
       address to,
       uint256 amount,
       bool unpack
-  ) internal nonReentrant {
+  ) internal virtual nonReentrant returns (uint256 actualAmount) {
       address redeemer = msg.sender;
       require(deposits[redeemer] >= amount, "INSUFFICIENT_DEPOSIT");
-      
-      if (unpack) {
-        IDYToken(underlying).withdraw(to, amount, true);
-      } else {
-        underlyingTransferOut(to, amount, false);
-      }
-
       IController(controller).beforeWithdraw(redeemer, address(this), amount);
 
       deposits[redeemer] -= amount;
@@ -140,6 +141,20 @@ abstract contract DepositVaultBase is Constants, IVault, IDepositVault, OwnableU
       if (address(farm) != address(0)) {
         farm.syncWithdraw(redeemer, amount, underlying);
       }
+
+      (address receiver, uint dFee) = feeConf.getConfig("withdraw_fee");
+      actualAmount = amount;
+      if (dFee > 0) {
+        uint fee = amount * dFee / PercentBase;
+        actualAmount = amount - fee;
+        underlyingTransferOut(receiver, fee, false);
+      }
+      
+      if (unpack) {
+        IDYToken(underlying).withdraw(to, actualAmount, true);
+      } else {
+        underlyingTransferOut(to, actualAmount, false);
+      }
   }
 
   /**
@@ -147,12 +162,11 @@ abstract contract DepositVaultBase is Constants, IVault, IDepositVault, OwnableU
     * @param liquidator 清算人
     * @param borrower 借款人
     */
-  function _liquidate(address liquidator, address borrower, bytes calldata data) internal nonReentrant{
+  function _liquidate(address liquidator, address borrower, bytes calldata data) internal virtual nonReentrant{
     require(msg.sender == controller, "LIQUIDATE_INVALID_CALLER");
     require(liquidator != borrower, "LIQUIDATE_DISABLE_YOURSELF");
 
     uint256 supplies = deposits[borrower];
-
 
 
     //获得抵押品

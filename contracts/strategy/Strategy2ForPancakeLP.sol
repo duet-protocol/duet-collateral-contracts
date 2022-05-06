@@ -4,14 +4,14 @@ pragma solidity 0.8.9;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import  "../interfaces/IPair.sol";
-import  "../interfaces/IMasterChef.sol";
+import  "../interfaces/IMasterChefV2.sol";
 import  "../interfaces/IRouter02.sol";
 
 import  "./BaseStrategy.sol";
 
 // 1. stake Pancake lp earn cake.
 // 2. cake to lp
-contract StrategyForPancakeLP is BaseStrategy {
+contract Strategy2ForPancakeLP is BaseStrategy {
   using SafeERC20 for IERC20;
 
   address public immutable router;
@@ -27,8 +27,8 @@ contract StrategyForPancakeLP is BaseStrategy {
   address[] public outputToToken0Path;
   address[] public outputToToken1Path;
 
-  constructor(address _controller, address _fee, address _want, address _router, address _master, uint _pid)
-    BaseStrategy(_controller, _fee, _want, IMasterChef(_master).cake()) {
+  constructor(address _controller, address _fee, address _want, address _router, address _master, address _cake, uint _pid)
+    BaseStrategy(_controller, _fee, _want, _cake) {
     router = _router;
     masterChef = _master;
     pid = _pid;
@@ -48,25 +48,28 @@ contract StrategyForPancakeLP is BaseStrategy {
     IERC20(token1).safeApprove(router, 0);
     IERC20(token1).safeApprove(router, type(uint).max);
 
-    IERC20(output).safeApprove(router, 0);
-    IERC20(output).safeApprove(router, type(uint).max);
+    if (token0 != output && token1 != output) {
+      IERC20(output).safeApprove(router, 0);
+      IERC20(output).safeApprove(router, type(uint).max);
+    }
+
     IERC20(want).safeApprove(masterChef, 0);
     IERC20(want).safeApprove(masterChef, type(uint).max);
   }
 
   function balanceOfPool() public virtual override view returns (uint) {
-    (uint amount, ) = IMasterChef(masterChef).userInfo(pid, address(this));
+    (uint amount, ,) = IMasterChefV2(masterChef).userInfo(pid, address(this));
     return amount;
   }
 
   function pendingOutput() external virtual override view returns (uint) {
-    return IMasterChef(masterChef).pendingCake(pid, address(this));
+    return IMasterChefV2(masterChef).pendingCake(pid, address(this));
   }
 
   function deposit() public virtual override {
     uint dAmount = IERC20(want).balanceOf(address(this));
     if (dAmount > 0) {
-      IMasterChef(masterChef).deposit(pid, dAmount);  // receive pending cake.
+      IMasterChefV2(masterChef).deposit(pid, dAmount);  // receive pending cake.
       emit Deposit(dAmount);
     }
 
@@ -75,7 +78,7 @@ contract StrategyForPancakeLP is BaseStrategy {
 
   // yield
   function harvest() public virtual override {
-    IMasterChef(masterChef).deposit(pid, 0);
+    IMasterChefV2(masterChef).deposit(pid, 0);
     doHarvest();
   }
 
@@ -86,7 +89,7 @@ contract StrategyForPancakeLP is BaseStrategy {
 
     uint dAmount = IERC20(want).balanceOf(address(this));
     if (dAmount < _amount) {
-      IMasterChef(masterChef).withdraw(pid, _amount - dAmount);
+      IMasterChefV2(masterChef).withdraw(pid, _amount - dAmount);
     }
 
     safeTransfer(want, dToken, _amount);  // lp transfer to dToken
@@ -101,7 +104,7 @@ contract StrategyForPancakeLP is BaseStrategy {
     
     doHarvest();
     uint b = balanceOfPool();
-    IMasterChef(masterChef).withdraw(pid, b);
+    IMasterChefV2(masterChef).withdraw(pid, b);
 
     uint balance = IERC20(want).balanceOf(address(this));
     IERC20(want).safeTransfer(dToken, balance);
@@ -114,7 +117,7 @@ contract StrategyForPancakeLP is BaseStrategy {
   }
 
   function emergency() external override onlyOwner {
-    IMasterChef(masterChef).emergencyWithdraw(pid);
+    IMasterChefV2(masterChef).emergencyWithdraw(pid);
     
     uint amount = IERC20(want).balanceOf(address(this));
     address dToken = IController(controller).dyTokens(want);
@@ -131,8 +134,14 @@ contract StrategyForPancakeLP is BaseStrategy {
     uint256 cakeBalance = IERC20(output).balanceOf(address(this));
     if(cakeBalance > minHarvestAmount) {
 
-      IRouter02(router).swapExactTokensForTokens(cakeBalance/2, 0, outputToToken0Path, address(this), block.timestamp);
-      IRouter02(router).swapExactTokensForTokens(cakeBalance/2, 0, outputToToken1Path, address(this), block.timestamp);
+      if (output != token0) {
+        IRouter02(router).swapExactTokensForTokens(cakeBalance/2, 0, outputToToken0Path, address(this), block.timestamp);
+      }
+      
+      if (output != token1) {
+        IRouter02(router).swapExactTokensForTokens(cakeBalance/2, 0, outputToToken1Path, address(this), block.timestamp);
+      }
+      
       
       uint token0Amount = IERC20(token0).balanceOf(address(this));
       uint token1Amount = IERC20(token1).balanceOf(address(this));
@@ -146,7 +155,7 @@ contract StrategyForPancakeLP is BaseStrategy {
       uint fee = sendYieldFee(liquidity);
       uint hAmount = liquidity - fee;
 
-      IMasterChef(masterChef).deposit(pid, hAmount);
+      IMasterChefV2(masterChef).deposit(pid, hAmount);
       emit Harvest(hAmount);
     }
   }
